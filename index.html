@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ANE-RE — Apple Neural Engine Compiler Research</title>
+  <meta name="description" content="ANE-RE: userspace Apple Neural Engine compiler research and graph authorship. Hand-authored 28L LUT4 Qwen2.5-1.5B on ANE, pplx 16.8033, measured throughput, original on-ANE inventions.">
+  <meta name="theme-color" content="#07090c">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap nav">
+      <a class="brand" href="#top">ANE-RE</a>
+      <ul class="nav-links">
+        <li><a href="#headline">Headline</a></li>
+        <li><a href="#performance">Performance</a></li>
+        <li><a href="#achievements">Achievements</a></li>
+        <li><a href="#inventions">Inventions</a></li>
+        <li><a href="#methods">Methods</a></li>
+        <li><a href="#research">Research</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap" id="top" aria-labelledby="hero-title">
+      <div class="hero-banner">
+        <img src="assets/banner.svg" width="1200" height="220" alt="ANE-RE — Apple Neural Engine compiler research and graph authorship">
+      </div>
+      <p class="eyebrow">Nayte Wilson · independent systems research</p>
+      <h1 id="hero-title">Own the path from authored graph to Neural Engine program</h1>
+      <p class="lede">
+        ANE-RE is a userspace compiler-research and graph-authorship program for Apple’s Neural Engine:
+        measure placement and throughput honestly, author production-scale graphs without treating conversion
+        as a black box, and keep negative results in the record.
+      </p>
+      <div class="chip-row" aria-label="Key attributes">
+        <span class="chip">A18 Pro · H17</span>
+        <span class="chip">Public compiler path</span>
+        <span class="chip">No entitlement bypass required</span>
+        <span class="chip">Proven / Estimated / Unmeasured</span>
+      </div>
+
+      <div class="metrics" aria-label="Headline proven metrics">
+        <article class="metric">
+          <p class="label">Authored graph quality</p>
+          <p class="value">16.8033 pplx</p>
+          <p class="note"><span class="badge badge-proven">Proven</span> · WikiText-2 · vs Apple 14.79</p>
+        </article>
+        <article class="metric">
+          <p class="label">Single-stream floor</p>
+          <p class="value">51.6 tok/s</p>
+          <p class="note"><span class="badge badge-proven">Proven</span> · production K=1 · 19.4&nbsp;ms</p>
+        </article>
+        <article class="metric">
+          <p class="label">Batch aggregate</p>
+          <p class="value">102.1 tok/s</p>
+          <p class="note"><span class="badge badge-proven">Proven</span> · B=4 production path</p>
+        </article>
+        <article class="metric">
+          <p class="label">Authored-graph decode</p>
+          <p class="value">23.78 tok/s</p>
+          <p class="note"><span class="badge badge-proven">Proven</span> · 28L split · compute-bound</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="position" class="wrap" aria-labelledby="position-title">
+      <h2 id="position-title">What ANE-RE is</h2>
+      <p class="quote">
+        A native Apple Neural Engine runtime and compiler-research program that builds local
+        intelligence through measured control of graph authorship, placement, state, memory,
+        and runtime behavior.
+      </p>
+      <p class="section-lede" style="margin-top:1rem">
+        It is not merely a model conversion project, and it is not merely a speculative-decoding experiment.
+        The laboratory remains private. This page publishes verified outcomes and proof labels — not a reconstruction manual.
+      </p>
+    </section>
+
+    <section id="headline" class="wrap" aria-labelledby="headline-title">
+      <h2 id="headline-title">Strongest completed result</h2>
+      <div class="card">
+        <h3>Hand-authored 28-layer LUT4 Qwen2.5-1.5B on the ANE</h3>
+        <p>
+          A full 28-layer LUT4 graph was authored without relying on coremltools for graph authorship,
+          compiled through Apple’s public toolchain, loaded on-device, and executed on the Neural Engine.
+          On the full WikiText-2 validation set it measures <strong>perplexity 16.8033</strong> versus
+          <strong>14.79</strong> for the Apple-converted reference used by the project
+          (<strong>+2.01</strong> framed as the expected 4-bit cost, not a claim of beating Apple.
+          <span class="badge badge-proven">Proven</span>
+        </p>
+      </div>
+    </section>
+
+    <section id="performance" class="wrap" aria-labelledby="perf-title">
+      <h2 id="perf-title">Measured performance</h2>
+      <p class="section-lede">
+        Throughput numbers are never merged across configurations. Each row is a distinct measured path.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Configuration</th>
+              <th>Result</th>
+              <th>Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Production monolithic LUT4 · B=1</strong></td>
+              <td><strong>51.6 tok/s</strong></td>
+              <td><span class="badge badge-proven">Proven</span></td>
+              <td>Warm min-of-burst floor · 19.4&nbsp;ms/token · stateful KV</td>
+            </tr>
+            <tr>
+              <td><strong>Production monolithic LUT4 · B=4</strong></td>
+              <td><strong>102.1 aggregate tok/s</strong></td>
+              <td><span class="badge badge-proven">Proven</span></td>
+              <td>Equal-length cohort batching · ~99.5% ANE placement</td>
+            </tr>
+            <tr>
+              <td><strong>Hand-authored 28L LUT4 · split decode</strong></td>
+              <td><strong>23.78 tok/s</strong></td>
+              <td><span class="badge badge-proven">Proven</span></td>
+              <td>Compute-bound at 28L · separate from the 51.6 production floor</td>
+            </tr>
+            <tr>
+              <td>Historical warm peak (older methodology)</td>
+              <td>57.0 tok/s</td>
+              <td><span class="badge badge-proven">Historical</span></td>
+              <td>Retained as dated peak; not the preferred current floor</td>
+            </tr>
+            <tr>
+              <td>“Bandwidth ceiling = 57.3 tok/s”</td>
+              <td>—</td>
+              <td><span class="badge badge-falsified">Falsified</span></td>
+              <td>K=1 coincidence; regime at 28L is compute-bound</td>
+            </tr>
+            <tr>
+              <td>EAGLE / Medusa closed-loop speedups</td>
+              <td>below baseline</td>
+              <td><span class="badge badge-nogo">No-go / Closed</span></td>
+              <td>Research-complete; not shipped throughput wins</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="achievements" class="wrap" aria-labelledby="ach-title">
+      <h2 id="ach-title">Major engineering achievements</h2>
+      <div class="achieve-list">
+        <article>
+          <h3>Public-path ANE residency</h3>
+          <p>Useful results run through Apple’s public compiler / Core ML path. Private direct-execution entitlements are not required for the proven workflow.</p>
+        </article>
+        <article>
+          <h3>Hand-authored production-scale graphs</h3>
+          <p>Native Swift graph authorship (SwiftMIL) produces full-depth LUT4 models that load and run on the ANE.</p>
+        </article>
+        <article>
+          <h3>Stateful KV on ANE</h3>
+          <p>Production decode keeps key/value state on-device across steps on validated paths.</p>
+        </article>
+        <article>
+          <h3>Multi-token verification loads</h3>
+          <p>Real-emitter seq=K verify artifacts compile and load on ANE — opening measured speculative-decode research without treating synthetic probes as hardware law.</p>
+        </article>
+        <article>
+          <h3>Native program inspection</h3>
+          <p>Compiled H17 programs can be decoded and characterized in userspace; a catalog of readable native op descriptors exists.</p>
+        </article>
+        <article>
+          <h3>Placement &amp; toolchain science</h3>
+          <p>Empirical characterization of placement, compiler-version sensitivity, and multiple distinct failure axes — with labels, not folklore.</p>
+        </article>
+        <article>
+          <h3>Batch throughput lever</h3>
+          <p>Measured B=4 aggregate throughput on the production path; batching survives as a real lever after bandwidth myths and several speculative paths failed fair tests.</p>
+        </article>
+        <article>
+          <h3>Published negatives</h3>
+          <p>LUT2 byte-cutting, fused EAGLE traps, Medusa, and prompt-injected fantasy throughput claims are retained as closed findings.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="inventions" class="wrap" aria-labelledby="inv-title">
+      <h2 id="inv-title">Original On-ANE Inventions</h2>
+      <p class="section-lede">
+        We developed and demonstrated original graph-level mechanisms around the Neural Engine’s real
+        placement, state, and compilation constraints. Capability and proof status only — not recipes.
+      </p>
+      <div class="invention-grid">
+        <article class="invention">
+          <span class="badge badge-proven">Proven · on-device</span>
+          <h3>Associative local memory</h3>
+          <p>We developed associative recall mechanisms that keep compact local memory behavior on the ANE with measured high residency.</p>
+        </article>
+        <article class="invention">
+          <span class="badge badge-proven">Proven · on-device</span>
+          <h3>Activation firewall</h3>
+          <p>We demonstrated representation-level policy enforcement inside the on-ANE path rather than only in post-hoc host code.</p>
+        </article>
+        <article class="invention">
+          <span class="badge badge-proven">Proven · on-device</span>
+          <h3>Representation governance</h3>
+          <p>We developed governance controls that steer internal representations while preserving Neural Engine placement.</p>
+        </article>
+        <article class="invention">
+          <span class="badge badge-proven">Proven · on-device</span>
+          <h3>Adaptive decoy routing &amp; quorum</h3>
+          <p>We demonstrated adaptive routing and multi-signal quorum decisioning designed for on-ANE control loops.</p>
+        </article>
+        <article class="invention">
+          <span class="badge badge-proven">Proven · Neo GO</span>
+          <h3>Free-rider probe bank</h3>
+          <p>We demonstrated parasitic probe heads that ride an existing ANE dispatch to expose safety/uncertainty signals without material added dispatch cost on the shipped subset.</p>
+        </article>
+        <article class="invention">
+          <span class="badge badge-proven">Proven · gate-0</span>
+          <h3>State-aware rollback</h3>
+          <p>We developed state-aware rollback / branch-on-KV controls with byte-exact ragged cross-lane isolation on the fp16 per-lane substrate under test.</p>
+        </article>
+        <article class="invention">
+          <span class="badge badge-proven">Proven · placement</span>
+          <h3>Pack-compose primitives</h3>
+          <p>We demonstrated composition of multiple control primitives in one package while retaining high ANE placement.</p>
+        </article>
+        <article class="invention">
+          <span class="badge badge-live">Live · efficacy unmeasured</span>
+          <h3>Hallucination / consistency signaling</h3>
+          <p>We developed on-ANE confidence and consistency signaling. Plumbing is live; end-task efficacy remains explicitly UNMEASURED.</p>
+        </article>
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <h3>What stays private</h3>
+        <p>
+          Graph topologies, tensor layouts, operator sequences, thresholds, training recipes,
+          weight locations, unpublished compiler workarounds, internal ledgers, and integration
+          blueprints remain unpublished. This page is outcomes and proof labels — not a how-to.
+        </p>
+      </div>
+    </section>
+
+    <section id="methods" class="wrap" aria-labelledby="methods-title">
+      <h2 id="methods-title">Research methods</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Evidence discipline</h3>
+          <ul>
+            <li>Every public number is labeled Proven, Estimated, Unmeasured, Inconclusive, Falsified, or Superseded</li>
+            <li>Toy probes are not promoted to hardware law</li>
+            <li>Later corrections supersede earlier headlines when evidence demands it</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Performance model (high level)</h3>
+          <ul>
+            <li>Measured H17 constants include a 51.2&nbsp;GB/s DRAM budget figure from compiler analytics</li>
+            <li>Bandwidth saturation as a universal ceiling is falsified</li>
+            <li>At full 28L depth, per-layer compute dominates the fixed dispatch floor</li>
+            <li>Batching remains the practical throughput lever that survived fair tests</li>
+          </ul>
+        </div>
+      </div>
+      <figure class="figure" style="margin-top:1.1rem">
+        <img src="assets/img/hero-long-dark.jpg" width="1600" height="677" alt="Laptop open in a dark room, screen as the only warm light">
+        <figcaption>Userspace measurement on ordinary personal hardware — not a datacenter story.</figcaption>
+      </figure>
+    </section>
+
+    <section id="research" class="wrap" aria-labelledby="research-title">
+      <h2 id="research-title">Research honesty</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Speculative decoding</h3>
+          <p>
+            EAGLE-family work produced real research signal — acceptance, verify economics, harness bugs found and fixed.
+            Closed-loop paths did not beat the <strong>51.6 tok/s</strong> warm production floor as a shipped speedup.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Medusa</h3>
+          <p>
+            Fused/trimmed Medusa measured <strong>28–36 tok/s</strong> and is closed. Plumbing worked; the algorithm did not amortize.
+          </p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <h3>Evidence labels</h3>
+        <p>
+          <span class="badge badge-proven">Proven</span>
+          <span class="badge badge-estimated">Estimated</span>
+          <span class="badge badge-unmeasured">Unmeasured</span>
+          <span class="badge badge-falsified">Falsified / No-go</span>
+          A modeled projection is never presented as shipped throughput.
+        </p>
+      </div>
+      <figure class="figure" style="margin-top:1.1rem">
+        <img src="assets/img/craft-bench.jpg" width="1200" height="1801" alt="Workbench with tools suggesting careful craft">
+        <figcaption>Negative findings stay in the record. Craft over spectacle.</figcaption>
+      </figure>
+    </section>
+
+    <section id="links" class="wrap" aria-labelledby="links-title">
+      <h2 id="links-title">Public artifacts</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>This site</h3>
+          <p>Public narrative only. The ANE-RE laboratory repository remains private by design.</p>
+        </div>
+        <div class="card">
+          <h3>Related public work</h3>
+          <p>
+            <a href="https://naytewilson.github.io/qwen2.5-ane-optimization-site/">Qwen2.5 ANE production-runtime site</a><br>
+            <a href="https://github.com/naytewilson/fugu">Fugu</a> — public Phase&nbsp;11a emit/compile/audit substrate
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div>© Nayte Wilson · ANE-RE</div>
+      <div>Claims labeled Proven / Estimated / Unmeasured / Falsified · Laboratory source remains private</div>
+    </div>
+  </footer>
+</body>
+</html>
