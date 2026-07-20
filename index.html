@@ -91,10 +91,11 @@
         <h3>Hand-authored 28-layer LUT4 Qwen2.5-1.5B on the ANE</h3>
         <p>
           A full 28-layer LUT4 graph was authored without relying on coremltools for graph authorship,
-          compiled through Apple’s public toolchain, loaded on-device, and executed on the Neural Engine.
+          compiled through Apple’s public toolchain, and executed on the Neural Engine as
+          <strong>two KV-sharing 14-layer ANE-resident halves</strong> (the hand-authored split path).
           On the full WikiText-2 validation set it measures <strong>perplexity 16.8033</strong> versus
           <strong>14.79</strong> for the Apple-converted reference used by the project
-          (<strong>+2.01</strong> framed as the expected 4-bit cost, not a claim of beating Apple.
+          (<strong>+2.01</strong>, framed as the expected 4-bit cost, not a claim of beating Apple).
           <span class="badge badge-proven">Proven</span>
         </p>
       </div>
@@ -133,12 +134,6 @@
               <td><strong>23.78 tok/s</strong></td>
               <td><span class="badge badge-proven">Proven</span></td>
               <td>Compute-bound at 28L · separate from the 51.6 production floor</td>
-            </tr>
-            <tr>
-              <td>Historical warm peak (older methodology)</td>
-              <td>57.0 tok/s</td>
-              <td><span class="badge badge-proven">Historical</span></td>
-              <td>Retained as dated peak; not the preferred current floor</td>
             </tr>
             <tr>
               <td>“Bandwidth ceiling = 57.3 tok/s”</td>
@@ -203,9 +198,9 @@
       </p>
       <div class="invention-grid">
         <article class="invention">
-          <span class="badge badge-proven">Proven · on-device</span>
+          <span class="badge badge-proven">Proven · ANE placement</span>
           <h3>Associative local memory</h3>
-          <p>We developed associative recall mechanisms that keep compact local memory behavior on the ANE with measured high residency.</p>
+          <p>We developed an associative-memory graph substrate whose page-selection and injection path reaches 99.5% ANE placement. Retrieval usefulness and wall-clock cost remain under measurement.</p>
         </article>
         <article class="invention">
           <span class="badge badge-proven">Proven · on-device</span>
@@ -218,9 +213,14 @@
           <p>We developed governance controls that steer internal representations while preserving Neural Engine placement.</p>
         </article>
         <article class="invention">
-          <span class="badge badge-proven">Proven · on-device</span>
-          <h3>Adaptive decoy routing &amp; quorum</h3>
-          <p>We demonstrated adaptive routing and multi-signal quorum decisioning designed for on-ANE control loops.</p>
+          <span class="badge badge-proven">Proven · structural gate</span>
+          <h3>Decoy Router</h3>
+          <p>We demonstrated a compiler-enforced function-selection gate: the default function reaches a benign stub, while an explicitly selected function reaches the real ANE model. This is structural gating / obfuscation — not adaptive routing or cryptographic security.</p>
+        </article>
+        <article class="invention">
+          <span class="badge badge-proven">Proven · B=4 vote</span>
+          <h3>Quorum Lanes</h3>
+          <p>We demonstrated a B=4 lane-agreement vote that detects one diverging lane. The model remains overwhelmingly ANE-placed; the comparison/reduction operations ride the CPU sampling tail.</p>
         </article>
         <article class="invention">
           <span class="badge badge-proven">Proven · Neo GO</span>
