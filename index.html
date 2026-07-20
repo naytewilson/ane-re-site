@@ -6,7 +6,7 @@
   <title>ANE-RE — Apple Neural Engine Compiler Research</title>
   <meta name="description" content="ANE-RE: userspace Apple Neural Engine compiler research and graph authorship. Hand-authored 28L LUT4 Qwen2.5-1.5B on ANE, pplx 16.8033, measured throughput, original on-ANE inventions.">
   <meta name="theme-color" content="#070708">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -31,27 +31,30 @@
   <main id="main">
     <section class="hero-stage wrap" id="top" aria-labelledby="hero-title">
       <div class="hero-rings" aria-hidden="true"></div>
-      <p class="pill"><span class="pill-dot" aria-hidden="true"></span>Hand-authored 28L LUT4 · pplx 16.8033 Proven</p>
-      <h1 id="hero-title">Own the path to the Neural Engine</h1>
-      <p class="lede">
-        Compiler research and graph authorship for Apple’s ANE — measured placement, labeled evidence, negatives kept.
-      </p>
+      <div class="hero-copy">
+        <p class="pill"><span class="pill-dot" aria-hidden="true"></span>Hand-authored 28L LUT4 · pplx 16.8033 Proven</p>
+        <h1 id="hero-title">Own the path to the Neural Engine</h1>
+        <p class="lede">Measured placement. Labeled evidence. Negatives kept.</p>
+        <div class="hero-actions">
+          <a class="btn" href="#performance">See measured results</a>
+          <a class="btn-secondary" href="#inventions">On-ANE inventions</a>
+        </div>
+      </div>
       <div class="hero-preview">
+        <div class="hero-eclipse" aria-hidden="true"></div>
+        <div class="hero-eclipse-wide" aria-hidden="true"></div>
         <div class="preview-frame">
-          <img src="assets/img/mako-project-pet.jpg" width="880" height="550" alt="Mako, the Codex project pet — cyber-organic fox on a dark workbench">
+          <img src="assets/img/mako-project-pet.jpg" width="880" height="550" alt="Mako, the Codex project pet">
           <div class="preview-glass" aria-hidden="true"></div>
           <a class="preview-play" href="#performance" aria-label="Jump to measured performance">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
           </a>
         </div>
       </div>
-      <div class="chip-row" aria-label="Key attributes">
-        <span class="chip">A18 Pro · H17</span>
-        <span class="chip">Public compiler path</span>
-        <span class="chip">No entitlement bypass</span>
-        <span class="chip">Proven / Estimated / Unmeasured</span>
-      </div>
-      <div class="metrics" aria-label="Headline proven metrics">
+    </section>
+
+    <section class="metrics-band" aria-label="Headline proven metrics">
+      <div class="wrap metrics">
         <article class="metric">
           <p class="label">Authored graph quality</p>
           <p class="value">16.8033 pplx</p>
@@ -277,10 +280,6 @@
           </ul>
         </div>
       </div>
-      <figure class="figure" style="margin-top:1.1rem">
-        <img src="assets/img/hero-long-dark.jpg" width="1600" height="677" alt="Laptop open in a dark room, screen as the only warm light">
-        <figcaption>Userspace measurement on ordinary personal hardware — not a datacenter story.</figcaption>
-      </figure>
     </section>
 
     <section id="research" class="wrap" aria-labelledby="research-title">
@@ -310,10 +309,6 @@
           A modeled projection is never presented as shipped throughput.
         </p>
       </div>
-      <figure class="figure portrait" style="margin-top:1.1rem">
-        <img src="assets/img/craft-bench.jpg" width="1200" height="1801" alt="Workbench with tools suggesting careful craft">
-        <figcaption>Negative findings stay in the record. Craft over spectacle.</figcaption>
-      </figure>
     </section>
 
     <section id="links" class="wrap" aria-labelledby="links-title">
