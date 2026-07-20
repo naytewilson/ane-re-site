@@ -495,3 +495,15 @@ td strong { color: #fff; font-weight: 650; }
   .nav-cta .ghost { display: none; }
   .preview-frame { margin: 0; border-radius: 14px; }
 }
+
+
+.overview-poster {
+  max-width: 44rem;
+  margin-inline: auto;
+  background: #050d18;
+  box-shadow: 0 30px 80px rgba(0,0,0,.45), 0 0 60px rgba(255,179,71,.12);
+}
+.overview-poster img {
+  width: 100%;
+  height: auto;
+}
