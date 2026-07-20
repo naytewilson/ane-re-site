@@ -4,7 +4,7 @@ Static public website for Nayte Wilson’s Apple Neural Engine compiler-research
 
 - **Public site repository:** this repo
 - **Laboratory source repository:** private by design (`naytewilson/ane-re`)
-- **Related public pages:** [Qwen2.5 ANE site](https://naytewilson.github.io/qwen2.5-ane-optimization-site/), [Fugu](https://github.com/naytewilson/fugu)
+- **Related public pages:** [Qwen2.5 ANE site](https://naytewilson.github.io/qwen2.5-ane-optimization-site/), [Fugu](https://naytewilson.github.io/fugu-site/)
 
 This repository contains only deliberately published HTML, CSS, and assets.
 It does not contain model weights, source code, internal ledgers, or reconstruction recipes.
