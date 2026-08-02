@@ -26,7 +26,6 @@ env:
   PRISM_REPO: https://github.com/PrismML-Eng/llama.cpp.git
   PRISM_REF: 9ca265a57f85f2117942490f421f64a226dd9847
   MODEL_SHA256: 868c11714cf8fe47f5ec9eeb2be0ab1a337112886f92ee0ede6b855c4fa31757
-  VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
 
 jobs:
   integer-dot-simulator:
@@ -54,13 +53,16 @@ jobs:
       - name: Install Vulkan and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build ccache glslc libvulkan-dev mesa-vulkan-drivers vulkan-tools
-      - name: Record software Vulkan device
+          sudo apt-get install -y cmake ninja-build ccache glslc libvulkan-dev mesa-vulkan-drivers vulkan-tools spirv-headers spirv-tools
+      - name: Select and record the Lavapipe software Vulkan device
         shell: bash
         run: |
           set -euo pipefail
-          test -f "$VK_ICD_FILENAMES"
-          vulkaninfo --summary | tee vulkaninfo.txt
+          find /usr/share/vulkan/icd.d -maxdepth 1 -type f -print | sort | tee vulkan-icd-files.txt
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -iname '*lvp*.json' -print -quit)"
+          test -n "$icd"
+          echo "VK_ICD_FILENAMES=$icd" | tee -a "$GITHUB_ENV"
+          VK_ICD_FILENAMES="$icd" vulkaninfo --summary 2>&1 | tee vulkaninfo.txt
       - name: Fetch exact Prism source
         shell: bash
         run: |
@@ -116,13 +118,15 @@ jobs:
           set -euo pipefail
           mkdir -p vulkan-artifact/bin vulkan-artifact/evidence
           for f in llama-cli llama-server llama-bench test-vulkan-q2_0-shader-sim test-backend-ops; do
-            test -f "prism-llama/build-vulkan/bin/$f"
-            cp "prism-llama/build-vulkan/bin/$f" vulkan-artifact/bin/
+            if test -f "prism-llama/build-vulkan/bin/$f"; then
+              cp "prism-llama/build-vulkan/bin/$f" vulkan-artifact/bin/
+            fi
           done
-          cp prism-head.txt q2-vulkan-candidate.patch vulkaninfo.txt vulkan-artifact/evidence/
-          cp upstream-q2-shader-sim.txt vulkan-backend-ops.txt vulkan-backend-ops-exit-code.txt vulkan-artifact/evidence/ 2>/dev/null || true
+          for f in prism-head.txt q2-vulkan-candidate.patch vulkaninfo.txt vulkan-icd-files.txt upstream-q2-shader-sim.txt vulkan-backend-ops.txt vulkan-backend-ops-exit-code.txt; do
+            test ! -f "$f" || cp "$f" vulkan-artifact/evidence/
+          done
           cp experiments/bonsai-vulkan-remote/apply_q2_vulkan_integer_dot.py vulkan-artifact/evidence/
-          sha256sum vulkan-artifact/bin/* | tee vulkan-artifact/evidence/binary-sha256.txt
+          find vulkan-artifact/bin -type f -maxdepth 1 -print0 | sort -z | xargs -0 -r sha256sum | tee vulkan-artifact/evidence/binary-sha256.txt
           glslc --version | tee vulkan-artifact/evidence/glslc.txt
           c++ --version | head -1 | tee vulkan-artifact/evidence/compiler.txt
       - uses: actions/upload-artifact@v4
@@ -139,7 +143,16 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build ccache curl glslc libvulkan-dev mesa-vulkan-drivers vulkan-tools
+          sudo apt-get install -y cmake ninja-build ccache curl glslc libvulkan-dev mesa-vulkan-drivers vulkan-tools spirv-headers spirv-tools
+      - name: Select Lavapipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          find /usr/share/vulkan/icd.d -maxdepth 1 -type f -print | sort | tee vulkan-icd-files-model-job.txt
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -iname '*lvp*.json' -print -quit)"
+          test -n "$icd"
+          echo "VK_ICD_FILENAMES=$icd" | tee -a "$GITHUB_ENV"
+          VK_ICD_FILENAMES="$icd" vulkaninfo --summary 2>&1 | tee vulkaninfo-model-job.txt
       - name: Fetch, patch, and build exact runtime
         shell: bash
         run: |
@@ -156,7 +169,6 @@ jobs:
             -DGGML_NATIVE=ON -DGGML_VULKAN=ON \
             -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF
           cmake --build prism-llama/build-vulkan --target llama-bench --parallel 2
-          vulkaninfo --summary | tee vulkaninfo-model-job.txt
           free -h | tee memory-before.txt
           df -h . | tee disk-before.txt
       - name: Download and verify the complete 27B model
@@ -202,6 +214,7 @@ jobs:
             model-size.txt
             model-sha256.txt
             vulkaninfo-model-job.txt
+            vulkan-icd-files-model-job.txt
             memory-before.txt
             memory-after-ngl1.txt
             memory-after-ngl99.txt
