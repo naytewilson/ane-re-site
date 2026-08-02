@@ -48,7 +48,7 @@ jobs:
       - name: Install Vulkan and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build ccache glslc libvulkan-dev vulkan-tools mesa-vulkan-drivers
+          sudo apt-get install -y cmake ninja-build ccache glslc libvulkan-dev vulkan-tools mesa-vulkan-drivers spirv-headers
       - name: Discover software Vulkan ICD and record capabilities
         shell: bash
         run: |
@@ -125,7 +125,7 @@ jobs:
           cp prism-head.txt q2-vulkan-intdot.patch vulkan-summary.txt vulkan-intdot-capabilities.txt vulkan-icd-files.txt vulkaninfo-summary-exit-code.txt vulkan-artifact/evidence/ 2>/dev/null || true
           cp prism-q2-shader-sim.txt test-backend-ops-help.txt vulkan-backend-ops.txt vulkan-artifact/evidence/ 2>/dev/null || true
           cp bonsai-vulkan-lab/apply_q2_vulkan_intdot.py vulkan-artifact/evidence/
-          cp prism-llama/ggml/src/ggml-vulkan/vulkan-shaders/types.glsl vulkan-artifact/evidence/types.patched.glsl 2>/dev/null || true
+          cp prism-llama/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vecq.comp vulkan-artifact/evidence/mul_mat_vecq.patched.comp 2>/dev/null || true
           cp prism-llama/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vecq_funcs.glsl vulkan-artifact/evidence/mul_mat_vecq_funcs.patched.glsl 2>/dev/null || true
           find vulkan-artifact/bin -type f -maxdepth 1 -print0 | sort -z | xargs -0 -r sha256sum | tee vulkan-artifact/evidence/binary-sha256.txt
       - uses: actions/upload-artifact@v4
@@ -142,7 +142,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build ccache glslc libvulkan-dev vulkan-tools mesa-vulkan-drivers curl
+          sudo apt-get install -y cmake ninja-build ccache glslc libvulkan-dev vulkan-tools mesa-vulkan-drivers spirv-headers curl
       - name: Discover Vulkan ICD and inspect resources
         shell: bash
         run: |
