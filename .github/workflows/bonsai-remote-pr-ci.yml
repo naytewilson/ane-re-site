@@ -51,7 +51,7 @@ jobs:
           cd prism-llama
           git checkout --detach "$PRISM_REF"
           git rev-parse HEAD | tee ../prism-head.txt
-      - name: Apply candidate
+      - name: Apply candidate robustly
         working-directory: prism-llama
         shell: bash
         run: |
@@ -59,20 +59,29 @@ jobs:
           cp ggml/src/ggml-cpu/arch/x86/quants.c ../quants.pristine.c
           python3 - <<'PY'
           from pathlib import Path
+
           p = Path('ggml/src/ggml-cpu/arch/x86/quants.c')
-          s = p.read_text()
-          old = '''            const int dp = hsum_i32_8(GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy));
-            const int sy = hsum_i32_8(GGML_DPBUSD_256(_mm256_setzero_si256(), ones,  qy));
-            sumi += d1 * (float)(dp - sy);'''
-          new = '''            const __m256i dp = GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy);
-            const __m256i sy = GGML_DPBUSD_256(_mm256_setzero_si256(), ones,  qy);
-            sumi += d1 * (float) hsum_i32_8(_mm256_sub_epi32(dp, sy));'''
-          if s.count(old) != 1:
-              raise SystemExit('target drift')
-          p.write_text(s.replace(old, new, 1))
+          lines = p.read_text().splitlines(keepends=True)
+          matches = [i for i, line in enumerate(lines) if 'const int dp = hsum_i32_8(GGML_DPBUSD_256' in line]
+          if len(matches) != 1:
+              raise SystemExit(f'expected one Q2_0 dp line, found {len(matches)}')
+          i = matches[0]
+          if i + 2 >= len(lines):
+              raise SystemExit('truncated target')
+          if 'const int sy = hsum_i32_8(GGML_DPBUSD_256' not in lines[i + 1]:
+              raise SystemExit('Q2_0 sy line not adjacent')
+          if 'sumi += d1 * (float)(dp - sy);' not in lines[i + 2]:
+              raise SystemExit('Q2_0 accumulation line not adjacent')
+          indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+          nl = '\n' if lines[i].endswith('\n') else ''
+          lines[i] = indent + 'const __m256i dp = GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy);' + nl
+          lines[i + 1] = indent + 'const __m256i sy = GGML_DPBUSD_256(_mm256_setzero_si256(), ones,  qy);' + nl
+          lines[i + 2] = indent + 'sumi += d1 * (float) hsum_i32_8(_mm256_sub_epi32(dp, sy));' + nl
+          p.write_text(''.join(lines))
           PY
           git diff --check
           git diff -- ggml/src/ggml-cpu/arch/x86/quants.c | tee ../candidate.patch
+          test -s ../candidate.patch
       - name: Configure and build
         working-directory: prism-llama
         run: |
@@ -99,6 +108,8 @@ jobs:
           cp prism-head.txt candidate.patch focused-tests.txt all-tests.txt quants.pristine.c runtime-artifact/evidence/
           cp prism-llama/ggml/src/ggml-cpu/arch/x86/quants.c runtime-artifact/evidence/quants.patched.c
           sha256sum runtime-artifact/bin/* | tee runtime-artifact/evidence/binary-sha256.txt
+          c++ --version | head -1 | tee runtime-artifact/evidence/compiler.txt
+          cmake --version | head -1 | tee runtime-artifact/evidence/cmake.txt
       - uses: actions/upload-artifact@v4
         with:
           name: patched-prism-runtime
@@ -110,7 +121,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ccache curl
-      - name: Fetch source and add swap
+      - name: Fetch source and establish memory safety margin
         shell: bash
         run: |
           set -euo pipefail
@@ -118,10 +129,20 @@ jobs:
           cd prism-llama
           git checkout --detach "$PRISM_REF"
           cd ..
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          if swapon --show --noheadings | grep -q .; then
+            echo 'Runner already has active swap; preserving it.'
+          else
+            SWAP_PATH=/mnt/bonsai-swapfile
+            sudo fallocate -l 8G "$SWAP_PATH" || true
+            if [ -f "$SWAP_PATH" ]; then
+              sudo chmod 600 "$SWAP_PATH"
+              sudo mkswap "$SWAP_PATH" || true
+              sudo swapon "$SWAP_PATH" || true
+            fi
+          fi
+          free -h
+          swapon --show || true
+          df -h .
       - name: Build pristine runtime
         working-directory: prism-llama
         run: |
@@ -134,18 +155,25 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+
           p = Path('ggml/src/ggml-cpu/arch/x86/quants.c')
-          s = p.read_text()
-          old = '''            const int dp = hsum_i32_8(GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy));
-            const int sy = hsum_i32_8(GGML_DPBUSD_256(_mm256_setzero_si256(), ones,  qy));
-            sumi += d1 * (float)(dp - sy);'''
-          new = '''            const __m256i dp = GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy);
-            const __m256i sy = GGML_DPBUSD_256(_mm256_setzero_si256(), ones, qy);
-            sumi += d1 * (float) hsum_i32_8(_mm256_sub_epi32(dp, sy));'''
-          if s.count(old) != 1:
-              raise SystemExit('candidate target drifted')
-          p.write_text(s.replace(old, new, 1))
+          lines = p.read_text().splitlines(keepends=True)
+          matches = [i for i, line in enumerate(lines) if 'const int dp = hsum_i32_8(GGML_DPBUSD_256' in line]
+          if len(matches) != 1:
+              raise SystemExit(f'expected one Q2_0 dp line, found {len(matches)}')
+          i = matches[0]
+          if 'const int sy = hsum_i32_8(GGML_DPBUSD_256' not in lines[i + 1]:
+              raise SystemExit('Q2_0 sy line not adjacent')
+          if 'sumi += d1 * (float)(dp - sy);' not in lines[i + 2]:
+              raise SystemExit('Q2_0 accumulation line not adjacent')
+          indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+          nl = '\n' if lines[i].endswith('\n') else ''
+          lines[i] = indent + 'const __m256i dp = GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy);' + nl
+          lines[i + 1] = indent + 'const __m256i sy = GGML_DPBUSD_256(_mm256_setzero_si256(), ones,  qy);' + nl
+          lines[i + 2] = indent + 'sumi += d1 * (float) hsum_i32_8(_mm256_sub_epi32(dp, sy));' + nl
+          p.write_text(''.join(lines))
           PY
+          git diff --check
           cmake -S . -B build-candidate -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DGGML_VULKAN=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF
           cmake --build build-candidate --target llama-bench --parallel 2
       - name: Download and verify model
