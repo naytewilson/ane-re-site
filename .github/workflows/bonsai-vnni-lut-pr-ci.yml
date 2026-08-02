@@ -1,0 +1,116 @@
+name: Bonsai VNNI LUT Candidate
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - bonsai-kernel-lab/apply_q2_lut_candidate.py
+      - bonsai-kernel-lab/q2_lut_row_bench.c
+      - experiments/bonsai-vnni-lut-ci/**
+  workflow_dispatch:
+
+concurrency:
+  group: bonsai-vnni-lut-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PRISM_REPO: https://github.com/PrismML-Eng/llama.cpp.git
+  PRISM_REF: 9ca265a57f85f2117942490f421f64a226dd9847
+
+jobs:
+  lut-microkernel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record runner CPU and compile benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          lscpu | tee cpu.txt
+          cc -O3 -march=icelake-server -mavx512vnni -mavx512vl -mavx512bw -mavx512f -mfma \
+            bonsai-kernel-lab/q2_lut_row_bench.c -lm -o q2_lut_row_bench
+          if grep -qw avx512_vnni /proc/cpuinfo; then
+            ./q2_lut_row_bench | tee q2-lut-row.txt
+          else
+            echo 'COMPILE_PASS; EXECUTION_SKIPPED_NO_AVX512_VNNI' | tee q2-lut-row.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q2-lut-vnni-microkernel
+          path: |
+            cpu.txt
+            q2-lut-row.txt
+
+  runtime-build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ccache
+      - name: Fetch exact Prism source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none "$PRISM_REPO" prism-llama
+          cd prism-llama
+          git checkout --detach "$PRISM_REF"
+          test "$(git rev-parse HEAD)" = "$PRISM_REF"
+          git rev-parse HEAD | tee ../prism-head.txt
+      - name: Apply LUT candidate and preserve patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp prism-llama/ggml/src/ggml-cpu/arch/x86/quants.c quants.pristine.c
+          python3 bonsai-kernel-lab/apply_q2_lut_candidate.py prism-llama/ggml/src/ggml-cpu/arch/x86/quants.c
+          cd prism-llama
+          git diff --check
+          git diff -- ggml/src/ggml-cpu/arch/x86/quants.c | tee ../candidate-lut.patch
+          test -s ../candidate-lut.patch
+      - name: Build and execute native AVX2 correctness lane
+        working-directory: prism-llama
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=ON -DGGML_VULKAN=OFF -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF
+          cmake --build build-native --target llama-bench test-quantize-fns test-backend-ops --parallel 2
+          ctest --test-dir build-native --output-on-failure -R 'test-quantize-fns|test-backend-ops' | tee ../focused-native-tests.txt
+      - name: Compile explicit AVX-512 VNNI runtime
+        working-directory: prism-llama
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-vnni -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON \
+            -DGGML_AVX512=ON -DGGML_AVX512_VNNI=ON \
+            -DGGML_VULKAN=OFF -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF
+          cmake --build build-vnni --target llama-bench test-quantize-fns test-backend-ops --parallel 2
+      - name: Package candidate evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p lut-runtime/native lut-runtime/vnni-compile-only lut-runtime/evidence
+          for f in llama-bench test-quantize-fns test-backend-ops; do
+            test ! -f "prism-llama/build-native/bin/$f" || cp "prism-llama/build-native/bin/$f" lut-runtime/native/
+            test ! -f "prism-llama/build-vnni/bin/$f" || cp "prism-llama/build-vnni/bin/$f" lut-runtime/vnni-compile-only/
+          done
+          cp prism-head.txt quants.pristine.c candidate-lut.patch lut-runtime/evidence/
+          cp prism-llama/ggml/src/ggml-cpu/arch/x86/quants.c lut-runtime/evidence/quants.lut.c
+          cp bonsai-kernel-lab/apply_q2_lut_candidate.py lut-runtime/evidence/
+          test ! -f focused-native-tests.txt || cp focused-native-tests.txt lut-runtime/evidence/
+          find lut-runtime -type f -print0 | sort -z | xargs -0 sha256sum | tee lut-runtime/evidence/artifact-sha256.txt
+          c++ --version | head -1 | tee lut-runtime/evidence/compiler.txt
+          cmake --version | head -1 | tee lut-runtime/evidence/cmake.txt
+          lscpu | tee lut-runtime/evidence/runner-cpu.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q2-lut-patched-runtime
+          path: lut-runtime
+          retention-days: 7
