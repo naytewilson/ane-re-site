@@ -77,6 +77,7 @@ jobs:
           cd prism-llama
           git diff --check
           git diff -- \
+            ggml/src/ggml-vulkan/ggml-vulkan.cpp \
             ggml/src/ggml-vulkan/vulkan-shaders/types.glsl \
             ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vecq_funcs.glsl \
             ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp \
@@ -148,6 +149,9 @@ jobs:
           git checkout --detach "$PRISM_REF"
           cd ..
           python3 experiments/bonsai-vulkan-remote/apply_q2_vulkan_integer_dot.py prism-llama
+          cd prism-llama
+          git diff --check
+          cd ..
           cmake -S prism-llama -B prism-llama/build-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DGGML_NATIVE=ON -DGGML_VULKAN=ON \
             -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF
