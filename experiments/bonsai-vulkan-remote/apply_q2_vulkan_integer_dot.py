@@ -5,7 +5,11 @@ The patch is intentionally narrow:
 - mark Q2_0 as legacy-like for mul_mat_vecq.comp's K_PER_ITER=8 path;
 - generate Q2_0 q8_1 integer-dot shader variants;
 - decode four packed 2-bit codes into one packed int32;
-- apply the Q2_0 zero-point correction using the q8_1 block sum.
+- apply the Q2_0 zero-point correction using the q8_1 block sum;
+- register normal and MUL_MAT_ID Q2_0 integer-dot GEMV pipelines.
+
+It does not claim or add a Q2_0 integer-dot MMQ/prompt-processing kernel. The
+existing float/dequant matmul path remains responsible for larger batches.
 """
 
 from __future__ import annotations
@@ -22,10 +26,23 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1))
 
 
+def insert_before_unique_line(path: Path, needle: str, insertion: str) -> None:
+    text = path.read_text()
+    lines = text.splitlines(keepends=True)
+    matches = [i for i, line in enumerate(lines) if needle in line]
+    if len(matches) != 1:
+        raise SystemExit(f"{path}: expected one line containing {needle!r}, found {len(matches)}")
+    i = matches[0]
+    indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+    lines.insert(i, indent + insertion.strip() + "\n")
+    path.write_text("".join(lines))
+
+
 def patch(root: Path) -> None:
     types = root / "ggml/src/ggml-vulkan/vulkan-shaders/types.glsl"
     funcs = root / "ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vecq_funcs.glsl"
     gen = root / "ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp"
+    runtime = root / "ggml/src/ggml-vulkan/ggml-vulkan.cpp"
 
     replace_once(
         types,
@@ -72,6 +89,18 @@ FLOAT_TYPE mul_q8_1(const int32_t q_sum, const float da, const vec2 dsb, const i
         gen,
         'if (is_legacy_quant(tname) || tname == "mxfp4" || is_k_quant(tname) || tname == "iq1_s" || tname == "iq1_m") {',
         'if (is_legacy_quant(tname) || tname == "q2_0" || tname == "mxfp4" || is_k_quant(tname) || tname == "iq1_s" || tname == "iq1_m") {',
+    )
+
+    insert_before_unique_line(
+        runtime,
+        'pipeline_dequant_mul_mat_vec_q8_1_f32[w][GGML_TYPE_Q4_0][i], "mul_mat_vec_q4_0_q8_1_f32"',
+        'ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_q8_1_f32[w][GGML_TYPE_Q2_0][i], "mul_mat_vec_q2_0_q8_1_f32", arr_dmmv_q2_0_q8_1_f32_len[reduc], arr_dmmv_q2_0_q8_1_f32_data[reduc], "main", mul_mat_vec_num_bindings, sizeof(vk_mat_vec_push_constants), {1*rm_stdq_int, 1, 1}, {wg_size_subgroup_int, 1*rm_stdq_int, i+1}, 1, true, use_subgroups, subgroup_size_int);',
+    )
+
+    insert_before_unique_line(
+        runtime,
+        'pipeline_dequant_mul_mat_vec_id_q8_1_f32[w][GGML_TYPE_Q4_0], "mul_mat_vec_id_q4_0_q8_1_f32"',
+        'ggml_vk_create_pipeline(device, device->pipeline_dequant_mul_mat_vec_id_q8_1_f32[w][GGML_TYPE_Q2_0], "mul_mat_vec_id_q2_0_q8_1_f32", arr_dmmv_id_q2_0_q8_1_f32_len[reduc], arr_dmmv_id_q2_0_q8_1_f32_data[reduc], "main", mul_mat_vec_id_num_bindings, sizeof(vk_mat_vec_id_push_constants), {1*rm_stdq_int, 1, 1}, {wg_size_subgroup_int, 1*rm_stdq_int}, 1, true, use_subgroups, subgroup_size_int);',
     )
 
 
