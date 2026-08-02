@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Add a direct Q2_0(g128) x Q8_1 integer-dot Vulkan decode path.
 
-The pinned Prism runtime already supports Q2_0 through the generic dequantize +
-float matvec shaders. This candidate wires Q2_0 into the packed integer-dot
-MMVQ path used by other quant types. The Q2_0 code values are unsigned
-{0,1,2,3}; the represented value is code-1, so the shader subtracts one quarter
-of the Q8_1 block sum in each of the four participating lanes.
+The pinned Prism runtime already supports Q2_0 through generic dequantize +
+float matvec shaders. This candidate adds a packed integer-dot MMVQ path only;
+it deliberately does not classify Q2_0 as a generic legacy quant globally,
+so the existing float, dequantize, copy, and matmul shader paths remain intact.
 """
 
 from __future__ import annotations
@@ -21,22 +20,11 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
-def patch_types(path: Path) -> None:
+def patch_shader_main(path: Path) -> None:
     text = path.read_text()
-    old = """#if defined(DATA_A_Q2_0)
-#define QUANT_K QUANT_K_Q2_0
-#define QUANT_R QUANT_R_Q2_0
-#define QUANT_AUXF 1
-#define A_TYPE block_q2_0
-#endif"""
-    new = """#if defined(DATA_A_Q2_0)
-#define QUANT_K QUANT_K_Q2_0
-#define QUANT_R QUANT_R_Q2_0
-#define QUANT_AUXF 1
-#define A_TYPE block_q2_0
-#define DATA_A_QUANT_LEGACY
-#endif"""
-    path.write_text(replace_once(text, old, new, "types Q2_0 legacy marker"))
+    old = "#if defined(DATA_A_QUANT_LEGACY) || defined(DATA_A_MXFP4)\n#define K_PER_ITER 8"
+    new = "#if defined(DATA_A_QUANT_LEGACY) || defined(DATA_A_MXFP4) || defined(DATA_A_Q2_0)\n#define K_PER_ITER 8"
+    path.write_text(replace_once(text, old, new, "Q2_0 K_PER_ITER selection"))
 
 
 def patch_shader_funcs(path: Path) -> None:
@@ -72,6 +60,10 @@ FLOAT_TYPE mul_q8_1(const int32_t q_sum, const float da, const vec2 dsb, const i
 
 '''
     text = text.replace(marker, q2 + marker, 1)
+
+    old_dispatch = "#if defined(DATA_A_QUANT_LEGACY) || defined(DATA_A_MXFP4)\nFLOAT_TYPE mmvq_dot_product"
+    new_dispatch = "#if defined(DATA_A_QUANT_LEGACY) || defined(DATA_A_MXFP4) || defined(DATA_A_Q2_0)\nFLOAT_TYPE mmvq_dot_product"
+    text = replace_once(text, old_dispatch, new_dispatch, "Q2_0 MMVQ dispatch")
     path.write_text(text)
 
 
@@ -79,7 +71,7 @@ def patch_generator(path: Path) -> None:
     text = path.read_text()
     old = 'return type_name == "q4_0" || type_name == "q4_1" || type_name == "q5_0" || type_name == "q5_1" || type_name == "q8_0";'
     new = 'return type_name == "q2_0" || type_name == "q4_0" || type_name == "q4_1" || type_name == "q5_0" || type_name == "q5_1" || type_name == "q8_0";'
-    path.write_text(replace_once(text, old, new, "generator legacy quant list"))
+    path.write_text(replace_once(text, old, new, "generator integer-dot quant list"))
 
 
 def patch_backend(path: Path) -> None:
@@ -109,7 +101,7 @@ def main() -> None:
     parser.add_argument("root", type=Path, help="Prism llama.cpp checkout")
     args = parser.parse_args()
     root = args.root
-    patch_types(root / "ggml/src/ggml-vulkan/vulkan-shaders/types.glsl")
+    patch_shader_main(root / "ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vecq.comp")
     patch_shader_funcs(root / "ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vecq_funcs.glsl")
     patch_generator(root / "ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp")
     patch_backend(root / "ggml/src/ggml-vulkan/ggml-vulkan.cpp")
