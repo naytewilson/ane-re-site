@@ -1,12 +1,6 @@
 name: Bonsai Vulkan Q2_0 Lab
 
 on:
-  push:
-    branches:
-      - experiment/bonsai-vulkan-remote
-    paths:
-      - experiments/bonsai-vulkan-remote/**
-      - .github/workflows/bonsai-vulkan-pr-ci.yml
   pull_request:
     branches:
       - main
