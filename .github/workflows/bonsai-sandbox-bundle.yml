@@ -1,0 +1,89 @@
+name: Bonsai Sandbox Bundle
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - experiments/bonsai-sandbox-bundle/**
+  workflow_dispatch:
+
+concurrency:
+  group: bonsai-sandbox-bundle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PRISM_REPO: https://github.com/PrismML-Eng/llama.cpp.git
+  PRISM_REF: 9ca265a57f85f2117942490f421f64a226dd9847
+  MODEL_SHA256: 868c11714cf8fe47f5ec9eeb2be0ab1a337112886f92ee0ede6b855c4fa31757
+
+jobs:
+  package-source-and-model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect runner storage
+        run: |
+          df -h . | tee disk-before.txt
+          free -h | tee memory.txt
+          lscpu | tee cpu.txt
+      - name: Fetch pinned Prism source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none "$PRISM_REPO" prism-llama
+          cd prism-llama
+          git checkout --detach "$PRISM_REF"
+          test "$(git rev-parse HEAD)" = "$PRISM_REF"
+          git rev-parse HEAD | tee ../prism-head.txt
+          cd ..
+          tar --exclude=.git -czf prism-llama-${PRISM_REF}.tar.gz -C prism-llama .
+          sha256sum prism-llama-${PRISM_REF}.tar.gz | tee source-archive-sha256.txt
+      - name: Download and verify complete Bonsai 27B model
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 8 --retry-delay 10 \
+            -o Ternary-Bonsai-27B-Q2_0.gguf \
+            https://huggingface.co/prism-ml/Ternary-Bonsai-27B-gguf/resolve/main/Ternary-Bonsai-27B-Q2_0.gguf
+          stat -c 'model_bytes=%s' Ternary-Bonsai-27B-Q2_0.gguf | tee model-size.txt
+          sha256sum Ternary-Bonsai-27B-Q2_0.gguf | tee model-sha256.txt
+          test "$(sha256sum Ternary-Bonsai-27B-Q2_0.gguf | awk '{print $1}')" = "$MODEL_SHA256"
+          split -b 1800M -d -a 2 Ternary-Bonsai-27B-Q2_0.gguf bonsai27b.part-
+          sha256sum bonsai27b.part-* | tee model-parts-sha256.txt
+          df -h . | tee disk-after.txt
+      - name: Upload pinned source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: prism-llama-pinned-source
+          path: |
+            prism-llama-*.tar.gz
+            prism-head.txt
+            source-archive-sha256.txt
+          compression-level: 0
+          retention-days: 1
+      - name: Upload complete model parts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bonsai-27b-model-parts
+          path: |
+            bonsai27b.part-*
+            model-size.txt
+            model-sha256.txt
+            model-parts-sha256.txt
+          compression-level: 0
+          retention-days: 1
+      - name: Upload runner evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: bonsai-bundle-runner-evidence
+          path: |
+            cpu.txt
+            memory.txt
+            disk-before.txt
+            disk-after.txt
+          retention-days: 1
