@@ -41,10 +41,6 @@ def patch_types(path: Path) -> None:
 
 def patch_shader_funcs(path: Path) -> None:
     text = path.read_text()
-    old_cond = "#if defined(DATA_A_Q4_0) || defined(DATA_A_Q5_0) || defined(DATA_A_Q8_0)"
-    new_cond = "#if defined(DATA_A_Q2_0) || defined(DATA_A_Q4_0) || defined(DATA_A_Q5_0) || defined(DATA_A_Q8_0)"
-    text = replace_once(text, old_cond, new_cond, "Q2_0 get_dm condition")
-
     marker = "#if defined(DATA_A_Q4_0)\n// 2-byte loads for Q4_0 blocks (18 bytes)"
     if text.count(marker) != 1:
         raise SystemExit(f"Q4_0 insertion marker: expected one match, found {text.count(marker)}")
