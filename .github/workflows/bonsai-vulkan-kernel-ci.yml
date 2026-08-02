@@ -4,10 +4,16 @@ on:
   push:
     branches:
       - experiment/bonsai-vulkan-kernel-ci
+      - experiment/bonsai-vulkan-kernel-ci-clean
+  pull_request:
+    branches:
+      - main
+    paths:
+      - bonsai-vulkan-lab/**
   workflow_dispatch:
 
 concurrency:
-  group: bonsai-vulkan-${{ github.ref }}
+  group: bonsai-vulkan-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
