@@ -1,0 +1,168 @@
+name: Bonsai Vulkan Kernel CI
+
+on:
+  push:
+    branches:
+      - experiment/bonsai-vulkan-kernel-ci
+  workflow_dispatch:
+
+concurrency:
+  group: bonsai-vulkan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PRISM_REPO: https://github.com/PrismML-Eng/llama.cpp.git
+  PRISM_REF: 9ca265a57f85f2117942490f421f64a226dd9847
+  MODEL_SHA256: 868c11714cf8fe47f5ec9eeb2be0ab1a337112886f92ee0ede6b855c4fa31757
+
+jobs:
+  integer-dot-simulator:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and execute Q2_0 shader simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ -O3 -std=c++17 bonsai-vulkan-lab/q2_vulkan_intdot_sim.cpp -o q2_vulkan_intdot_sim
+          ./q2_vulkan_intdot_sim | tee q2_vulkan_intdot_sim.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: q2-vulkan-intdot-simulator
+          path: q2_vulkan_intdot_sim.txt
+
+  vulkan-build-and-correctness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build ccache glslc libvulkan-dev vulkan-tools mesa-vulkan-drivers
+      - name: Select Lavapipe and record Vulkan capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          LVP=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          test -f "$LVP"
+          echo "VK_ICD_FILENAMES=$LVP" >> "$GITHUB_ENV"
+          VK_ICD_FILENAMES="$LVP" vulkaninfo --summary | tee vulkan-summary.txt
+          VK_ICD_FILENAMES="$LVP" vulkaninfo | grep -E 'VK_KHR_shader_integer_dot_product|integerDotProduct4x8BitPackedMixedSignednessAccelerated|subgroupSize' | tee vulkan-intdot-capabilities.txt || true
+      - name: Fetch exact Prism source
+        run: |
+          git clone --filter=blob:none "$PRISM_REPO" prism-llama
+          cd prism-llama
+          git checkout --detach "$PRISM_REF"
+          git rev-parse HEAD | tee ../prism-head.txt
+      - name: Apply direct Q2_0 Vulkan integer-dot candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bonsai-vulkan-lab/apply_q2_vulkan_intdot.py prism-llama
+          cd prism-llama
+          git diff --check
+          git diff -- ggml/src/ggml-vulkan | tee ../q2-vulkan-intdot.patch
+          test -s ../q2-vulkan-intdot.patch
+      - name: Configure Vulkan runtime
+        working-directory: prism-llama
+        run: |
+          cmake -S . -B build-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=ON -DGGML_VULKAN=ON -DLLAMA_BUILD_TESTS=ON -DLLAMA_CURL=OFF
+      - name: Compile shaders, runtime, and correctness tests
+        working-directory: prism-llama
+        run: |
+          cmake --build build-vulkan --target llama-bench test-vulkan-q2_0-shader-sim test-backend-ops --parallel 2
+      - name: Run Q2_0 shader simulator from Prism
+        working-directory: prism-llama/build-vulkan
+        run: ./bin/test-vulkan-q2_0-shader-sim | tee ../../prism-q2-shader-sim.txt
+      - name: Enumerate backend test command
+        working-directory: prism-llama/build-vulkan
+        shell: bash
+        run: ./bin/test-backend-ops --help 2>&1 | tee ../../test-backend-ops-help.txt || true
+      - name: Run Vulkan backend correctness tests on Lavapipe
+        working-directory: prism-llama/build-vulkan
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 45m ./bin/test-backend-ops -b Vulkan 2>&1 | tee ../../vulkan-backend-ops.txt
+      - name: Package Vulkan build evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vulkan-artifact/bin vulkan-artifact/evidence
+          cp prism-llama/build-vulkan/bin/llama-bench vulkan-artifact/bin/ 2>/dev/null || true
+          cp prism-llama/build-vulkan/bin/test-vulkan-q2_0-shader-sim vulkan-artifact/bin/ 2>/dev/null || true
+          cp prism-llama/build-vulkan/bin/test-backend-ops vulkan-artifact/bin/ 2>/dev/null || true
+          cp prism-head.txt q2-vulkan-intdot.patch vulkan-summary.txt vulkan-intdot-capabilities.txt vulkan-artifact/evidence/ 2>/dev/null || true
+          cp prism-q2-shader-sim.txt test-backend-ops-help.txt vulkan-backend-ops.txt vulkan-artifact/evidence/ 2>/dev/null || true
+          cp bonsai-vulkan-lab/apply_q2_vulkan_intdot.py vulkan-artifact/evidence/
+          cp prism-llama/ggml/src/ggml-vulkan/vulkan-shaders/types.glsl vulkan-artifact/evidence/types.patched.glsl 2>/dev/null || true
+          cp prism-llama/ggml/src/ggml-vulkan/vulkan-shaders/mul_mat_vecq_funcs.glsl vulkan-artifact/evidence/mul_mat_vecq_funcs.patched.glsl 2>/dev/null || true
+          sha256sum vulkan-artifact/bin/* | tee vulkan-artifact/evidence/binary-sha256.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q2-vulkan-build-and-correctness
+          path: vulkan-artifact
+
+  model-smoke-on-lavapipe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build ccache glslc libvulkan-dev vulkan-tools mesa-vulkan-drivers curl
+      - name: Set Lavapipe and inspect memory
+        shell: bash
+        run: |
+          set -euo pipefail
+          LVP=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          test -f "$LVP"
+          echo "VK_ICD_FILENAMES=$LVP" >> "$GITHUB_ENV"
+          free -h | tee memory-before.txt
+          df -h . | tee disk-before.txt
+      - name: Fetch, patch, and build exact runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none "$PRISM_REPO" prism-llama
+          cd prism-llama
+          git checkout --detach "$PRISM_REF"
+          cd ..
+          python3 bonsai-vulkan-lab/apply_q2_vulkan_intdot.py prism-llama
+          cmake -S prism-llama -B prism-llama/build-vulkan -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=ON -DGGML_VULKAN=ON -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF
+          cmake --build prism-llama/build-vulkan --target llama-bench --parallel 2
+      - name: Download and verify Q2_0 g128 model
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 5 --retry-delay 10 -o Ternary-Bonsai-27B-Q2_0.gguf \
+            https://huggingface.co/prism-ml/Ternary-Bonsai-27B-gguf/resolve/main/Ternary-Bonsai-27B-Q2_0.gguf
+          sha256sum Ternary-Bonsai-27B-Q2_0.gguf | tee model-sha256.txt
+          test "$(sha256sum Ternary-Bonsai-27B-Q2_0.gguf | awk '{print $1}')" = "$MODEL_SHA256"
+      - name: Execute one-token Vulkan model smoke test
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 90m /usr/bin/time -v ./prism-llama/build-vulkan/bin/llama-bench \
+            -m Ternary-Bonsai-27B-Q2_0.gguf -p 8 -n 1 -r 1 -t 4 -ngl 99 \
+            2>&1 | tee vulkan-model-smoke.txt
+          free -h | tee memory-after.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: q2-vulkan-model-smoke
+          path: |
+            model-sha256.txt
+            memory-before.txt
+            memory-after.txt
+            disk-before.txt
+            vulkan-model-smoke.txt
