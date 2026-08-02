@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - bonsai-kernel-lab/**
+      - experiments/bonsai-remote-kernel-ci/**
   workflow_dispatch:
 
 concurrency:
