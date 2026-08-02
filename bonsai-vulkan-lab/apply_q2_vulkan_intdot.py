@@ -93,7 +93,23 @@ def patch_backend(path: Path) -> None:
     id_line = lines[ident[0]]
     q2_id = id_line.replace("GGML_TYPE_Q4_0", "GGML_TYPE_Q2_0").replace("q4_0", "q2_0")
     lines.insert(ident[0], q2_id)
-    path.write_text("".join(lines))
+    text = "".join(lines)
+
+    # The generic vector-pipeline selectors explicitly whitelist the types
+    # allowed to use Q8_1 activations. Add Q2_0 to both the normal and ID
+    # selectors; otherwise the new pipeline is compiled but never selected.
+    selector = """if (b_type == GGML_TYPE_Q8_1) {
+        switch (a_type) {
+            case GGML_TYPE_Q4_0:"""
+    selected = """if (b_type == GGML_TYPE_Q8_1) {
+        switch (a_type) {
+            case GGML_TYPE_Q2_0:
+            case GGML_TYPE_Q4_0:"""
+    count = text.count(selector)
+    if count != 2:
+        raise SystemExit(f"Q8_1 vector selector markers: expected two, found {count}")
+    text = text.replace(selector, selected)
+    path.write_text(text)
 
 
 def main() -> None:
