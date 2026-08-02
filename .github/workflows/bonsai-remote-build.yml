@@ -1,0 +1,209 @@
+name: Bonsai Remote Kernel Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/bonsai-remote-kernel-ci
+    paths:
+      - experiments/bonsai-remote-kernel-ci/**
+      - .github/workflows/bonsai-remote-build.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - experiments/bonsai-remote-kernel-ci/**
+      - .github/workflows/bonsai-remote-build.yml
+
+permissions:
+  contents: read
+
+env:
+  PRISM_REPO: https://github.com/PrismML-Eng/llama.cpp.git
+  PRISM_REF: 9ca265a57f85f2117942490f421f64a226dd9847
+
+jobs:
+  microkernel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record runner CPU
+        run: |
+          lscpu | tee cpu.txt
+          grep -m1 '^flags' /proc/cpuinfo | tee -a cpu.txt
+      - name: Compile VNNI harness
+        run: |
+          cc -O3 -march=icelake-server -mavx512vnni -mavx512vl -mavx512bw -mavx512f \
+            experiments/bonsai-remote-kernel-ci/q2_vnni_bench.c \
+            -o q2_vnni_bench
+      - name: Execute when AVX-512 VNNI is exposed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -qw avx512_vnni /proc/cpuinfo; then
+            ./q2_vnni_bench | tee q2_vnni_bench.txt
+          else
+            echo 'COMPILE_PASS; EXECUTION_SKIPPED_NO_AVX512_VNNI' | tee q2_vnni_bench.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: microkernel-evidence
+          path: |
+            cpu.txt
+            q2_vnni_bench.txt
+
+  runtime-build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ccache
+      - name: Fetch exact Prism source
+        run: |
+          git clone --filter=blob:none "$PRISM_REPO" prism-llama
+          cd prism-llama
+          git checkout --detach "$PRISM_REF"
+          git rev-parse HEAD | tee ../prism-head.txt
+      - name: Save pristine source and apply candidate
+        working-directory: prism-llama
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp ggml/src/ggml-cpu/arch/x86/quants.c ../quants.pristine.c
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ggml/src/ggml-cpu/arch/x86/quants.c')
+          s = p.read_text()
+          old = '''            const int dp = hsum_i32_8(GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy));
+            const int sy = hsum_i32_8(GGML_DPBUSD_256(_mm256_setzero_si256(), ones,  qy));
+            sumi += d1 * (float)(dp - sy);'''
+          new = '''            const __m256i dp = GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy);
+            const __m256i sy = GGML_DPBUSD_256(_mm256_setzero_si256(), ones,  qy);
+            sumi += d1 * (float) hsum_i32_8(_mm256_sub_epi32(dp, sy));'''
+          count = s.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one target, found {count}')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff -- ggml/src/ggml-cpu/arch/x86/quants.c | tee ../candidate.patch
+      - name: Configure patched CPU runtime
+        working-directory: prism-llama
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF \
+            -DGGML_AVX=ON \
+            -DGGML_AVX2=ON \
+            -DGGML_AVX512=ON \
+            -DGGML_AVX512_VNNI=ON \
+            -DGGML_VULKAN=OFF \
+            -DLLAMA_BUILD_TESTS=ON \
+            -DLLAMA_CURL=OFF
+      - name: Build patched runtime
+        working-directory: prism-llama
+        run: cmake --build build --parallel 2
+      - name: Run focused tests
+        working-directory: prism-llama/build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --output-on-failure -R 'test-quantize-fns|test-backend-ops' | tee ../../focused-tests.txt
+      - name: Run complete test suite
+        working-directory: prism-llama/build
+        shell: bash
+        run: |
+          set -o pipefail
+          ctest --output-on-failure -j2 | tee ../../all-tests.txt
+      - name: Record artifacts and hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-artifact/bin runtime-artifact/evidence
+          cp prism-llama/build/bin/llama-cli runtime-artifact/bin/
+          cp prism-llama/build/bin/llama-server runtime-artifact/bin/
+          cp prism-llama/build/bin/llama-bench runtime-artifact/bin/
+          cp prism-head.txt candidate.patch focused-tests.txt all-tests.txt runtime-artifact/evidence/
+          cp quants.pristine.c runtime-artifact/evidence/
+          cp prism-llama/ggml/src/ggml-cpu/arch/x86/quants.c runtime-artifact/evidence/quants.patched.c
+          sha256sum runtime-artifact/bin/* | tee runtime-artifact/evidence/binary-sha256.txt
+          c++ --version | head -1 | tee runtime-artifact/evidence/compiler.txt
+          cmake --version | head -1 | tee runtime-artifact/evidence/cmake.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patched-prism-runtime
+          path: runtime-artifact
+
+  end-to-end-ternary-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ccache curl
+      - name: Fetch exact Prism source
+        run: |
+          git clone --filter=blob:none "$PRISM_REPO" prism-llama
+          cd prism-llama
+          git checkout --detach "$PRISM_REF"
+      - name: Create swap safety margin
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+      - name: Build pristine runtime
+        working-directory: prism-llama
+        run: |
+          cmake -S . -B build-baseline -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DGGML_VULKAN=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF
+          cmake --build build-baseline --target llama-bench --parallel 2
+      - name: Patch and build candidate runtime
+        working-directory: prism-llama
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ggml/src/ggml-cpu/arch/x86/quants.c')
+          s = p.read_text()
+          old = '''            const int dp = hsum_i32_8(GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy));
+            const int sy = hsum_i32_8(GGML_DPBUSD_256(_mm256_setzero_si256(), ones,  qy));
+            sumi += d1 * (float)(dp - sy);'''
+          new = '''            const __m256i dp = GGML_DPBUSD_256(_mm256_setzero_si256(), codes, qy);
+            const __m256i sy = GGML_DPBUSD_256(_mm256_setzero_si256(), ones, qy);
+            sumi += d1 * (float) hsum_i32_8(_mm256_sub_epi32(dp, sy));'''
+          if s.count(old) != 1:
+              raise SystemExit('candidate target drifted')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          cmake -S . -B build-candidate -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON -DGGML_VULKAN=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_CURL=OFF
+          cmake --build build-candidate --target llama-bench --parallel 2
+      - name: Download public Bonsai ternary model
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 5 --retry-delay 10 \
+            -o Ternary-Bonsai-27B-Q2_0.gguf \
+            https://huggingface.co/prism-ml/Ternary-Bonsai-27B-gguf/resolve/main/Ternary-Bonsai-27B-Q2_0.gguf
+          sha256sum Ternary-Bonsai-27B-Q2_0.gguf | tee model-sha256.txt
+          test "$(sha256sum Ternary-Bonsai-27B-Q2_0.gguf | awk '{print $1}')" = "868c11714cf8fe47f5ec9eeb2be0ab1a337112886f92ee0ede6b855c4fa31757"
+      - name: Run matched baseline and candidate benchmarks
+        shell: bash
+        run: |
+          set -euo pipefail
+          lscpu | tee runner-cpu.txt
+          free -h | tee memory-before.txt
+          ./prism-llama/build-baseline/bin/llama-bench -m Ternary-Bonsai-27B-Q2_0.gguf -p 64 -n 32 -r 3 -t 4,8 -ngl 0 | tee baseline-bench.txt
+          sync
+          ./prism-llama/build-candidate/bin/llama-bench -m Ternary-Bonsai-27B-Q2_0.gguf -p 64 -n 32 -r 3 -t 4,8 -ngl 0 | tee candidate-bench.txt
+          free -h | tee memory-after.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: end-to-end-ternary-benchmark
+          path: |
+            model-sha256.txt
+            runner-cpu.txt
+            memory-before.txt
+            memory-after.txt
+            baseline-bench.txt
+            candidate-bench.txt
