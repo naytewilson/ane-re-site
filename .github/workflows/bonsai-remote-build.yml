@@ -1,0 +1,15 @@
+name: Bonsai Remote Manual Fallback
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  controller-location:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo 'Automatic build, tests, and matched model benchmarks are controlled by .github/workflows/bonsai-remote-pr-ci.yml on main.'
+          echo 'This workflow is intentionally manual-only to prevent duplicate 7.2 GB model runs.'
